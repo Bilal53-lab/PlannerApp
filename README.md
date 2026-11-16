@@ -6,6 +6,12 @@ Two offline Android apps, each a single-page web UI inside a small native WebVie
 
 Tasks, notes, short- and long-term goals, projects, calendar, focus timer, analytics and reports.
 
+## Ledger (`expenses/`, `Ledger.apk`)
+
+Offline expense and budget tracker: income and spending, categories, monthly
+budgets with progress, multiple accounts, recurring bills, a spending donut,
+a six-month income-vs-spending trend, monthly statements, CSV export and backup.
+
 ## Lumen PDF (`pdfreader/`, `LumenPDF.apk`)
 
 PDF reader with a library, search, page thumbnails, chapters, bookmarks, drawing and highlighting,
