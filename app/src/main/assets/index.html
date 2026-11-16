@@ -11,10 +11,13 @@
   --good:#2b8a3e; --warn:#e67700; --bad:#c92a2a; --grid:#e9ebef;
 }
 @media (prefers-color-scheme: dark){
-  :root{ --bg:#101216; --card:#1a1d23; --ink:#eceef2; --mute:#9aa1ad; --line:#2a2e37;
+  :root:not([data-theme=light]){ --bg:#101216; --card:#1a1d23; --ink:#eceef2; --mute:#9aa1ad; --line:#2a2e37;
     --accent:#748ffc; --accent-ink:#0d1020; --soft:#232a45;
     --good:#51cf66; --warn:#ffa94d; --bad:#ff6b6b; --grid:#262a32; }
 }
+:root[data-theme=dark]{ --bg:#101216; --card:#1a1d23; --ink:#eceef2; --mute:#9aa1ad; --line:#2a2e37;
+    --accent:#748ffc; --accent-ink:#0d1020; --soft:#232a45;
+    --good:#51cf66; --warn:#ffa94d; --bad:#ff6b6b; --grid:#262a32; }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Roboto,sans-serif;
@@ -79,13 +82,43 @@ svg.chart{width:100%;height:auto;display:block}
 svg.chart text{fill:var(--mute);font-size:10px}
 pre.report{white-space:pre-wrap;font:13px/1.5 ui-monospace,monospace;margin:0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);
-  padding:9px 16px;border-radius:99px;font-size:13px;z-index:30}
+  padding:9px 16px;border-radius:99px;font-size:13px;z-index:30;display:flex;gap:12px;align-items:center;max-width:92vw}
+.toast button{background:none;border:0;color:inherit;font-weight:700;font-size:13px;padding:0;text-decoration:underline}
+body.focusing .toast{bottom:calc(140px + env(safe-area-inset-bottom))}
+.iconbtn{background:var(--card);border:1px solid var(--line);color:var(--ink);width:40px;height:40px;border-radius:12px;display:grid;place-items:center;padding:0}
+.iconbtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{background:var(--soft);color:var(--accent);border:0;border-radius:99px;padding:6px 12px;font-size:12px;font-weight:600}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal .wd{font-size:11px;color:var(--mute);padding:4px 0}
+.cal button{background:none;border:1px solid transparent;border-radius:10px;color:var(--ink);padding:6px 0 4px;font:inherit;font-size:13px;min-height:44px}
+.cal button.today{border-color:var(--accent);font-weight:700}
+.cal button.sel{background:var(--accent);color:var(--accent-ink)}
+.cal .dots{display:flex;justify-content:center;gap:2px;height:6px;margin-top:2px}
+.cal .dots i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.cal .dots i.d{background:var(--good)}
+.cal .dots i.o{background:var(--bad)}
+.cal button.sel .dots i{background:var(--accent-ink)}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);grid-auto-columns:1fr;gap:3px}
+.heat i{aspect-ratio:1;border-radius:3px;background:var(--grid)}
+.focusbar{position:fixed;left:10px;right:10px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:8;background:var(--ink);color:var(--bg);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.focusbar .tm{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px}
+.focusbar .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.focusbar button{background:var(--bg);color:var(--ink);border:0;border-radius:9px;padding:6px 12px;font-weight:600}
+body.focusing{padding-bottom:calc(124px + env(safe-area-inset-bottom))}
+body.focusing .fab{bottom:calc(136px + env(safe-area-inset-bottom))}
+.sub-item{display:flex;align-items:center;gap:8px;padding:5px 0}
+.sub-item span{flex:1}
+.sub-item.done span{text-decoration:line-through;color:var(--mute)}
+.sub-item .x{background:none;border:0;color:var(--mute);font-size:18px;padding:0 6px}
 </style>
 </head>
 <body>
-<header><div style="flex:1"><h1 id="title"></h1><div class="sub" id="subtitle"></div></div></header>
+<header><div style="flex:1"><h1 id="title"></h1><div class="sub" id="subtitle"></div></div>
+<button class="iconbtn" id="searchBtn" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button></header>
 <main id="view"></main>
 <button class="fab" id="fab" aria-label="Add">+</button>
+<div id="focusbar"></div>
 <nav id="nav"></nav>
 <div id="modal"></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -95,8 +128,17 @@ pre.report{white-space:pre-wrap;font:13px/1.5 ui-monospace,monospace;margin:0}
 const KEY = "workspace.v1";
 let db = load();
 function load(){
-  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d && d.tasks) return d; }catch(e){}
-  return {tasks:[],notes:[],goals:[],projects:[]};
+  let d = null;
+  try{ d = JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+  return normalize(d && Array.isArray(d.tasks) ? d : {});
+}
+function normalize(d){
+  return {tasks:d.tasks||[],notes:d.notes||[],goals:d.goals||[],projects:d.projects||[],focus:d.focus||[],
+    settings:Object.assign({theme:"system"},d.settings),timer:d.timer||null};
+}
+function applyTheme(){
+  const t = db.settings.theme;
+  if(t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(db)); }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -114,7 +156,30 @@ const PRI = {1:"High",2:"Medium",3:"Low"};
 const COLORS = ["#3b5bdb","#0c8599","#2b8a3e","#e67700","#c2255c","#7048e8","#5c940d","#868e96"];
 const proj = id => db.projects.find(p => p.id === id);
 const goal = id => db.goals.find(g => g.id === id);
-function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2200); }
+const REP = {daily:"Daily",weekdays:"Weekdays",weekly:"Weekly",monthly:"Monthly"};
+const fmtMins = m => m < 60 ? m + " min" : (m/60).toFixed(1) + " h";
+function toast(msg, undo){
+  document.querySelectorAll(".toast").forEach(x=>x.remove());
+  const t=document.createElement("div"); t.className="toast"; t.textContent=msg;
+  if(undo){ const b=document.createElement("button"); b.textContent="Undo"; b.onclick=()=>{ t.remove(); undo(); }; t.appendChild(b); }
+  document.body.appendChild(t); setTimeout(()=>t.remove(), undo?5000:2400);
+}
+function nextDue(t){
+  const td = today();
+  const step = x => { if(t.repeat==="monthly"){ const o=new Date(x+"T00:00:00"); o.setMonth(o.getMonth()+1); return ymd(o); } return addDays(x, t.repeat==="weekly"?7:1); };
+  let d = step(t.due || td); while(d < td) d = step(d);
+  if(t.repeat==="weekdays") while([0,6].includes(new Date(d+"T00:00:00").getDay())) d = addDays(d,1);
+  return d;
+}
+function toggleTask(t){
+  t.done = !t.done; t.doneAt = t.done ? Date.now() : null;
+  if(t.done && t.repeat && !t.spawned){
+    t.spawned = true; const due = nextDue(t);
+    db.tasks.push(Object.assign({}, t, {id:uid(),done:false,doneAt:null,spawned:false,due,createdAt:Date.now(),subs:(t.subs||[]).map(s=>({t:s.t,done:false}))}));
+    toast("Done. Next one is due " + fmtDate(due));
+  }
+  save(); render();
+}
 function goalProgress(g){
   const linked = db.tasks.filter(t => t.goalId === g.id);
   if(linked.length) return Math.round(100*linked.filter(t=>t.done).length/linked.length);
@@ -133,7 +198,7 @@ const TABS = [
   ["plan","Plan",'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>'],
   ["insights","Insights",'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>']
 ];
-let state = {tab:"today", taskFilter:"open", noteQ:"", planSeg:"goals", range:30, insSeg:"analytics", reportPeriod:"week"};
+let state = {tab:"today", taskFilter:"open", taskView:"list", calMonth:today().slice(0,7), calDay:today(), noteQ:"", planSeg:"goals", range:30, insSeg:"analytics", reportPeriod:"week"};
 function renderNav(){
   $("#nav").innerHTML = TABS.map(([id,l,p]) => `<button data-tab="${id}" class="${state.tab===id?"on":""}"><svg viewBox="0 0 24 24">${p}</svg>${l}</button>`).join("");
 }
@@ -146,7 +211,7 @@ function render(){
 $("#fab").onclick = () => {
   if(state.tab==="notes") editNote();
   else if(state.tab==="plan") state.planSeg==="goals" ? editGoal() : editProject();
-  else editTask();
+  else editTask(null, state.tab==="tasks" && state.taskView==="cal" ? state.calDay : undefined);
 };
 
 /* ---------- task rows ---------- */
@@ -162,21 +227,30 @@ function taskRow(t){
     <div class="body" data-task="${t.id}"><div class="t">${esc(t.title)}</div>
     <div class="meta">${due}${t.priority==1?'<span class="pill bad">High</span>':""}
       ${p?`<span><span class="dot" style="background:${p.color}"></span> ${esc(p.name)}</span>`:""}
-      ${g?`<span>◎ ${esc(g.title)}</span>`:""}</div></div></div>`;
+      ${g?`<span>◎ ${esc(g.title)}</span>`:""}
+      ${t.repeat?`<span>↻ ${REP[t.repeat]}</span>`:""}
+      ${t.subs&&t.subs.length?`<span>☑ ${t.subs.filter(s=>s.done).length}/${t.subs.length}</span>`:""}</div></div></div>`;
 }
 function sortTasks(a,b){ return (a.done-b.done) || ((a.due||"9999").localeCompare(b.due||"9999")) || (a.priority-b.priority) || (b.createdAt-a.createdAt); }
 $("#view").addEventListener("click", e => {
   const tg = e.target.closest("[data-toggle]");
-  if(tg){ const t = db.tasks.find(x=>x.id===tg.dataset.toggle); t.done=!t.done; t.doneAt = t.done?Date.now():null; save(); render(); return; }
-  const el = e.target.closest("[data-task],[data-note],[data-goal],[data-project],[data-act],[data-set]");
+  if(tg){ toggleTask(db.tasks.find(x=>x.id===tg.dataset.toggle)); return; }
+  const el = e.target.closest("[data-task],[data-note],[data-goal],[data-project],[data-act],[data-set],[data-thm]");
   if(!el) return;
   const d = el.dataset;
-  if(d.task) editTask(db.tasks.find(x=>x.id===d.task));
+  if(d.thm){ db.settings.theme = d.thm; save(); applyTheme(); render(); }
+  else if(d.task) editTask(db.tasks.find(x=>x.id===d.task));
   else if(d.note) editNote(db.notes.find(x=>x.id===d.note));
   else if(d.goal) editGoal(db.goals.find(x=>x.id===d.goal));
   else if(d.project) editProject(db.projects.find(x=>x.id===d.project));
   else if(d.set){ const [k,v] = d.set.split(":"); state[k] = k==="range" ? +v : v; render(); }
   else if(d.act) ACTIONS[d.act]();
+});
+$("#view").addEventListener("keydown", e => {
+  if(e.key !== "Enter" || e.target.id !== "quick") return;
+  const v = e.target.value.trim(); if(!v) return;
+  db.tasks.push({id:uid(),title:v,notes:"",due:today(),priority:2,projectId:"",goalId:"",repeat:"",subs:[],done:false,doneAt:null,createdAt:Date.now()});
+  save(); render(); $("#quick").focus();
 });
 
 /* ---------- Today ---------- */
@@ -186,13 +260,17 @@ function viewToday(){
   const due = open.filter(t=>t.due===td).sort(sortTasks);
   const soon = open.filter(t=>t.due>td && t.due<=addDays(td,7)).sort(sortTasks);
   const doneToday = db.tasks.filter(t=>t.done && dayOf(t.doneAt)===td);
-  $("#title").textContent = "Today";
+  const hr = new Date().getHours();
+  $("#title").textContent = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+  const fresh = !db.tasks.length && !db.notes.length && !db.goals.length && !db.projects.length;
   $("#subtitle").textContent = new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
   const total = due.length + doneToday.length + overdue.length;
   const pct = total ? Math.round(100*doneToday.length/total) : 0;
   const sect = (title, list, emptyMsg) => `<div class="card"><h3>${title}${list.length?` · ${list.length}`:""}</h3>${list.length?list.map(taskRow).join(""):`<div class="empty">${emptyMsg}</div>`}</div>`;
   const goals = db.goals.filter(g=>g.status!=="done").slice(0,3);
   $("#view").innerHTML = `
+    ${fresh?`<div class="card"><h3>Welcome</h3><p style="margin:0 0 10px">Capture tasks here, write notes, set goals and group work into projects. Insights turns what you finish into analytics and reports.</p><button class="btn ghost sm" data-act="sample">Try it with sample data</button></div>`:""}
+    <input id="quick" class="search" placeholder="Quick add a task for today, then press Enter" enterkeyhint="done">
     <div class="card"><h3>Day progress</h3><div style="display:flex;justify-content:space-between"><b>${doneToday.length} done</b><span class="sub" style="color:var(--mute)">${due.length+overdue.length} left</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
     ${overdue.length?sect("Overdue",overdue,""):""}
     ${sect("Due today",due,"Nothing due today. Tap + to add a task.")}
@@ -209,24 +287,103 @@ function viewTasks(){
   if(f==="done") list.sort((a,b)=>b.doneAt-a.doneAt);
   $("#subtitle").textContent = `${db.tasks.filter(t=>!t.done).length} open · ${db.tasks.filter(t=>t.done).length} completed`;
   const seg = [["open","Open"],["overdue","Overdue"],["high","High priority"],["done","Done"],["all","All"]];
-  $("#view").innerHTML = `<div class="seg">${seg.map(([k,l])=>`<button data-set="taskFilter:${k}" class="${f===k?"on":""}">${l}</button>`).join("")}</div>
-    <div class="card">${list.length?list.map(taskRow).join(""):'<div class="empty">No tasks here.</div>'}</div>`;
+  const v = state.taskView;
+  $("#view").innerHTML = `<div class="seg"><button data-set="taskView:list" class="${v==="list"?"on":""}">List</button><button data-set="taskView:cal" class="${v==="cal"?"on":""}">Calendar</button></div>` +
+    (v==="cal" ? calendarHtml() : `<div class="seg">${seg.map(([k,l])=>`<button data-set="taskFilter:${k}" class="${f===k?"on":""}">${l}</button>`).join("")}</div>
+    <div class="card">${list.length?list.map(taskRow).join(""):'<div class="empty">No tasks here.</div>'}</div>`);
 }
-function editTask(t){
-  const isNew = !t; t = t || {title:"",notes:"",due:state.tab==="today"?today():"",priority:2,projectId:"",goalId:""};
+function calendarHtml(){
+  const [y,m] = state.calMonth.split("-").map(Number), first = new Date(y,m-1,1), n = new Date(y,m,0).getDate(), td = today();
+  let cells = "SMTWTFS".split("").map(c=>`<div class="wd">${c}</div>`).join("") + "<div></div>".repeat(first.getDay());
+  for(let d=1; d<=n; d++){
+    const k = y+"-"+pad(m)+"-"+pad(d), ts = db.tasks.filter(t=>t.due===k), open = ts.filter(t=>!t.done).length;
+    cells += `<button data-set="calDay:${k}" class="${k===td?"today":""} ${k===state.calDay?"sel":""}">${d}<div class="dots">${open?`<i class="${k<td?"o":""}"></i>`:""}${ts.length-open?'<i class="d"></i>':""}</div></button>`;
+  }
+  const list = db.tasks.filter(t=>t.due===state.calDay).sort(sortTasks);
+  return `<div class="card"><div style="display:flex;align-items:center;margin-bottom:8px"><button class="btn ghost sm" data-act="calPrev" aria-label="Previous month">‹</button>
+    <b style="flex:1;text-align:center">${first.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</b><button class="btn ghost sm" data-act="calNext" aria-label="Next month">›</button></div>
+    <div class="cal">${cells}</div>
+    <div class="meta" style="margin-top:8px"><span><span class="dot" style="background:var(--accent)"></span> open</span><span><span class="dot" style="background:var(--bad)"></span> overdue</span><span><span class="dot" style="background:var(--good)"></span> done</span></div></div>
+    <div class="card"><h3>${new Date(state.calDay+"T00:00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"})}</h3>${list.length?list.map(taskRow).join(""):'<div class="empty">Nothing scheduled. Tap + to add a task for this day.</div>'}</div>`;
+}
+function shiftMonth(n){ const [y,m] = state.calMonth.split("-").map(Number), d = new Date(y,m-1+n,1); state.calMonth = d.getFullYear()+"-"+pad(d.getMonth()+1); render(); }
+function editTask(t, due){
+  const isNew = !t; t = t || {title:"",notes:"",due:due ?? (state.tab==="today"?today():""),priority:2,projectId:"",goalId:"",repeat:"",subs:[]};
+  const subs = (t.subs||[]).map(s=>({t:s.t,done:s.done}));
+  const logged = isNew ? 0 : db.focus.filter(f=>f.taskId===t.id).reduce((a,f)=>a+f.mins,0);
+  const addSub = () => { const v=$("#f_sub").value.trim(); if(v){ subs.push({t:v,done:false}); $("#f_sub").value=""; drawSubs(); } };
+  const drawSubs = () => { $("#subsBox").innerHTML = subs.map((s,i)=>`<div class="sub-item ${s.done?"done":""}"><input type="checkbox" style="width:auto" data-si="${i}" ${s.done?"checked":""}><span>${esc(s.t)}</span><button type="button" class="x" data-sx="${i}" aria-label="Remove step">×</button></div>`).join(""); };
   sheet(`${isNew?"New task":"Edit task"}`, `
     <label>Title</label><input id="f_title" value="${esc(t.title)}" placeholder="What needs doing?">
     <div class="two"><div><label>Due date</label><input type="date" id="f_due" value="${esc(t.due||"")}"></div>
     <div><label>Priority</label><select id="f_pri">${[1,2,3].map(n=>`<option value="${n}" ${t.priority==n?"selected":""}>${PRI[n]}</option>`).join("")}</select></div></div>
+    <div class="chips" id="dueChips">${[["Today",0],["Tomorrow",1],["Next week",7]].map(([l,n])=>`<button type="button" class="chip" data-due="${addDays(today(),n)}">${l}</button>`).join("")}<button type="button" class="chip" data-due="">No date</button></div>
+    <label>Repeat</label><select id="f_rep"><option value="">Does not repeat</option>${Object.keys(REP).map(k=>`<option value="${k}" ${t.repeat===k?"selected":""}>${REP[k]}</option>`).join("")}</select>
+    <label>Checklist</label><div id="subsBox"></div><input id="f_sub" placeholder="Add a step, then press Enter" enterkeyhint="done">
+    ${isNew||t.done?"":`<label>Focus timer${logged?` · ${fmtMins(logged)} logged so far`:""}</label><div class="chips">${[15,25,50].map(n=>`<button type="button" class="chip" data-focus="${n}">Start ${n} min</button>`).join("")}</div>`}
     <div class="two"><div><label>Project</label><select id="f_proj"><option value="">None</option>${db.projects.map(p=>`<option value="${p.id}" ${t.projectId===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
     <div><label>Goal</label><select id="f_goal"><option value="">None</option>${db.goals.map(g=>`<option value="${g.id}" ${t.goalId===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></div></div>
     <label>Details</label><textarea id="f_notes" style="min-height:80px">${esc(t.notes||"")}</textarea>`,
     () => {
       const title = $("#f_title").value.trim(); if(!title) return toast("Add a title"), false;
-      Object.assign(t,{title,due:$("#f_due").value,priority:+$("#f_pri").value,projectId:$("#f_proj").value,goalId:$("#f_goal").value,notes:$("#f_notes").value});
+      addSub();
+      Object.assign(t,{title,due:$("#f_due").value,priority:+$("#f_pri").value,projectId:$("#f_proj").value,goalId:$("#f_goal").value,notes:$("#f_notes").value,repeat:$("#f_rep").value,subs});
       if(isNew) db.tasks.push(Object.assign(t,{id:uid(),done:false,doneAt:null,createdAt:Date.now()}));
     }, isNew?null:() => { db.tasks = db.tasks.filter(x=>x!==t); });
+  drawSubs();
+  $("#subsBox").onclick = e => { const d = e.target.dataset; if(d.si !== undefined){ subs[d.si].done = e.target.checked; drawSubs(); } else if(d.sx !== undefined){ subs.splice(d.sx,1); drawSubs(); } };
+  $("#f_sub").onkeydown = e => { if(e.key==="Enter"){ e.preventDefault(); addSub(); } };
+  $("#dueChips").onclick = e => { if(e.target.dataset.due !== undefined) $("#f_due").value = e.target.dataset.due; };
+  document.querySelectorAll("[data-focus]").forEach(b => b.onclick = () => { closeSheet(); startFocus(t, +b.dataset.focus); });
 }
+
+/* ---------- focus timer ---------- */
+function startFocus(t, mins){ db.timer = {taskId:t.id,title:t.title,start:Date.now(),end:Date.now()+mins*6e4}; save(); tick(); toast("Focus started. Keep the app open."); }
+function endFocus(completed){
+  const tm = db.timer; if(!tm) return;
+  const mins = Math.round((Math.min(Date.now(), tm.end) - tm.start)/6e4);
+  if(mins >= 1) db.focus.push({taskId:tm.taskId,at:tm.start,mins});
+  db.timer = null; save(); tick();
+  toast(completed ? `Focus session complete. ${mins} min logged` : mins >= 1 ? `Stopped. ${mins} min logged` : "Focus stopped");
+  if(completed && navigator.vibrate) navigator.vibrate([200,100,200]);
+  if(state.tab === "insights") render();
+}
+function tick(){
+  const tm = db.timer, box = $("#focusbar");
+  document.body.classList.toggle("focusing", !!tm);
+  if(!tm){ box.innerHTML = ""; return; }
+  const left = tm.end - Date.now();
+  if(left <= 0) return endFocus(true);
+  if(!box.firstChild) box.innerHTML = `<div class="focusbar"><span class="tm"></span><span class="nm">${esc(tm.title)}</span><button id="focusStop">Stop</button></div>`;
+  const s = Math.ceil(left/1000);
+  box.querySelector(".tm").textContent = pad(Math.floor(s/60)) + ":" + pad(s%60);
+}
+$("#focusbar").onclick = e => { if(e.target.id === "focusStop") endFocus(false); };
+setInterval(tick, 1000);
+
+/* ---------- search ---------- */
+$("#searchBtn").onclick = () => {
+  $("#modal").innerHTML = `<div class="sheet-bg"><div class="sheet" style="min-height:70vh"><h2>Search</h2><input id="q" placeholder="Tasks, notes, goals and projects" style="margin-top:8px"><div id="qres"></div><div class="actions"><button class="btn ghost" id="s_cancel">Close</button></div></div></div>`;
+  $("#s_cancel").onclick = closeSheet;
+  $(".sheet-bg").onclick = e => { if(e.target.classList.contains("sheet-bg")) closeSheet(); };
+  const run = () => {
+    const q = $("#q").value.trim().toLowerCase();
+    if(!q){ $("#qres").innerHTML = '<div class="empty">Type to search everything.</div>'; return; }
+    const hit = s => (s||"").toLowerCase().includes(q);
+    const rows = [
+      ...db.tasks.filter(t=>hit(t.title)||hit(t.notes)||(t.subs||[]).some(s=>hit(s.t))).map(t=>["task",t.id,t.title,(t.done?"Completed task":"Task")+(t.due?" · "+fmtDate(t.due):"")]),
+      ...db.notes.filter(n=>hit(n.title)||hit(n.body)||(n.tags||[]).some(hit)).map(n=>["note",n.id,n.title||"Untitled","Note"]),
+      ...db.goals.filter(g=>hit(g.title)||hit(g.why)).map(g=>["goal",g.id,g.title,"Goal"]),
+      ...db.projects.filter(p=>hit(p.name)||hit(p.desc)).map(p=>["project",p.id,p.name,"Project"])];
+    $("#qres").innerHTML = rows.length ? rows.slice(0,50).map(([k,id,t,m])=>`<div class="row" data-k="${k}" data-id="${id}"><div class="body"><div class="t">${esc(t)}</div><div class="meta">${m}</div></div></div>`).join("") : '<div class="empty">No matches.</div>';
+  };
+  $("#q").oninput = run; run(); $("#q").focus();
+  $("#qres").onclick = e => {
+    const r = e.target.closest("[data-k]"); if(!r) return; const id = r.dataset.id;
+    ({task:()=>editTask(db.tasks.find(x=>x.id===id)), note:()=>editNote(db.notes.find(x=>x.id===id)),
+      goal:()=>editGoal(db.goals.find(x=>x.id===id)), project:()=>editProject(db.projects.find(x=>x.id===id))})[r.dataset.k]();
+  };
+};
 
 /* ---------- Notes ---------- */
 function viewNotes(){
@@ -242,7 +399,7 @@ function noteList(){
   $("#noteList").innerHTML = list.length ? list.map(n=>`<div class="card" data-note="${n.id}">
       <div class="t" style="font-weight:600">${n.pinned?"📌 ":""}${esc(n.title||"Untitled")}</div>
       <div class="note">${esc(n.body)}</div>
-      <div class="meta">${(n.tags||[]).map(t=>`<span class="pill">#${esc(t)}</span>`).join("")}<span>${new Date(n.updatedAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span></div></div>`).join("")
+      <div class="meta">${proj(n.projectId)?`<span><span class="dot" style="background:${proj(n.projectId).color}"></span> ${esc(proj(n.projectId).name)}</span>`:""}${(n.tags||[]).map(t=>`<span class="pill">#${esc(t)}</span>`).join("")}<span>${new Date(n.updatedAt).toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span></div></div>`).join("")
     : `<div class="empty">${q?"No notes match.":"No notes yet. Tap + to write one."}</div>`;
 }
 function editNote(n){
@@ -251,11 +408,12 @@ function editNote(n){
     <label>Title</label><input id="f_title" value="${esc(n.title)}" placeholder="Title">
     <label>Note</label><textarea id="f_body" style="min-height:220px" placeholder="Write here…">${esc(n.body)}</textarea>
     <label>Tags (comma separated)</label><input id="f_tags" value="${esc((n.tags||[]).join(", "))}" placeholder="ideas, work">
+    <label>Project</label><select id="f_nproj"><option value="">None</option>${db.projects.map(p=>`<option value="${p.id}" ${n.projectId===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select>
     <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="f_pin" style="width:auto" ${n.pinned?"checked":""}> Pin to top</label>`,
     () => {
       const title=$("#f_title").value.trim(), body=$("#f_body").value;
       if(!title && !body.trim()) return toast("Note is empty"), false;
-      Object.assign(n,{title,body,tags:$("#f_tags").value.split(",").map(s=>s.trim().replace(/^#/,"")).filter(Boolean),pinned:$("#f_pin").checked,updatedAt:Date.now()});
+      Object.assign(n,{title,body,tags:$("#f_tags").value.split(",").map(s=>s.trim().replace(/^#/,"")).filter(Boolean),pinned:$("#f_pin").checked,projectId:$("#f_nproj").value,updatedAt:Date.now()});
       if(isNew) db.notes.push(Object.assign(n,{id:uid(),createdAt:Date.now()}));
     }, isNew?null:() => { db.notes = db.notes.filter(x=>x!==n); });
 }
@@ -336,7 +494,8 @@ function stats(days, offset=0){
   const perDay = {}; for(let i=0;i<days;i++) perDay[addDays(start,i)] = 0;
   done.forEach(t => perDay[dayOf(t.doneAt)]++);
   const lead = done.map(t => (t.doneAt - t.createdAt)/864e5);
-  return {start,end,done,created,perDay,
+  const focus = db.focus.filter(f => inR(f.at));
+  return {start,end,done,created,perDay,focus,focusMins:focus.reduce((a,f)=>a+f.mins,0),
     onTimePct: withDue.length ? Math.round(100*onTime.length/withDue.length) : null,
     avgLead: lead.length ? lead.reduce((a,b)=>a+b,0)/lead.length : null,
     activeDays: Object.values(perDay).filter(v=>v>0).length,
@@ -363,6 +522,14 @@ function hbars(rows){
   const max = Math.max(1,...rows.map(r=>r[1]));
   return rows.map(([n,v,c])=>`<div class="hbar"><span class="n">${esc(n)}</span><div class="bar" style="margin:0"><i style="width:${100*v/max}%;${c?`background:${c}`:""}"></i></div><span class="v">${v}</span></div>`).join("");
 }
+function heatmap(){
+  const td = today(), start = addDays(td, -new Date().getDay() - 77), counts = {};
+  db.tasks.forEach(t => { if(t.done){ const k = dayOf(t.doneAt); counts[k] = (counts[k]||0)+1; } });
+  let cells = "", max = 1;
+  for(let d=start; d<=td; d=addDays(d,1)) max = Math.max(max, counts[d]||0);
+  for(let d=start; d<=td; d=addDays(d,1)){ const c = counts[d]||0; cells += `<i title="${fmtDate(d)}: ${c}" ${c?`style="background:var(--accent);opacity:${(0.25+0.75*c/max).toFixed(2)}"`:""}></i>`; }
+  return `<div class="heat">${cells}</div><div class="meta" style="margin-top:8px">Each square is a day and each column a week, newest on the right. Darker means more tasks finished.</div>`;
+}
 function delta(cur, prev){
   if(!prev && !cur) return "no change"; if(!prev) return "new activity";
   const p = Math.round(100*(cur-prev)/prev); return (p>0?"▲ ":p<0?"▼ ":"")+Math.abs(p)+"% vs previous";
@@ -370,7 +537,7 @@ function delta(cur, prev){
 function viewInsights(){
   $("#title").textContent = "Insights"; $("#subtitle").textContent = "Analytics and reports";
   const s = state.insSeg;
-  let html = `<div class="seg"><button data-set="insSeg:analytics" class="${s==="analytics"?"on":""}">Analytics</button><button data-set="insSeg:reports" class="${s==="reports"?"on":""}">Reports</button><button data-set="insSeg:data" class="${s==="data"?"on":""}">Data</button></div>`;
+  let html = `<div class="seg"><button data-set="insSeg:analytics" class="${s==="analytics"?"on":""}">Analytics</button><button data-set="insSeg:reports" class="${s==="reports"?"on":""}">Reports</button><button data-set="insSeg:data" class="${s==="data"?"on":""}">Settings</button></div>`;
   if(s==="analytics"){
     const R = state.range, cur = stats(R), prev = stats(R,R), td = today();
     const open = db.tasks.filter(t=>!t.done), overdue = open.filter(t=>t.due&&t.due<td);
@@ -387,8 +554,12 @@ function viewInsights(){
       <div class="tile"><div class="k">Current streak</div><div class="v">${streak()}<span style="font-size:14px;font-weight:500"> day${streak()===1?"":"s"}</span></div><div class="d">${cur.activeDays}/${R} active days</div></div>
       <div class="tile"><div class="k">Avg time to finish</div><div class="v">${cur.avgLead===null?"–":cur.avgLead<1?"<1":cur.avgLead.toFixed(1)}<span style="font-size:14px;font-weight:500"> d</span></div><div class="d">from created to done</div></div>
       <div class="tile"><div class="k">Open / overdue</div><div class="v">${open.length}<span style="font-size:14px;font-weight:500;color:${overdue.length?"var(--bad)":"var(--mute)"}"> / ${overdue.length}</span></div><div class="d">${age.length?"avg age "+(age.reduce((a,b)=>a+b,0)/age.length).toFixed(1)+" d":"backlog clear"}</div></div>
+      <div class="tile"><div class="k">Focus time</div><div class="v">${fmtMins(cur.focusMins)}</div><div class="d">${cur.focus.length} session${cur.focus.length===1?"":"s"}</div></div>
+      <div class="tile"><div class="k">Notes written</div><div class="v">${cur.notes}</div><div class="d">in this period</div></div>
     </div>
     <div class="card"><h3>Completed per day</h3>${barChart(cur.perDay)}</div>
+    <div class="card"><h3>Activity, last 12 weeks</h3>${heatmap()}</div>
+    ${cur.focus.length?`<div class="card"><h3>Focus minutes by project</h3>${hbars(db.projects.map(p=>[p.name,cur.focus.filter(f=>db.tasks.find(t=>t.id===f.taskId)?.projectId===p.id).reduce((a,f)=>a+f.mins,0),p.color]).concat([["No project",cur.focus.filter(f=>!proj(db.tasks.find(t=>t.id===f.taskId)?.projectId)).reduce((a,f)=>a+f.mins,0),"var(--mute)"]]).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]))}</div>`:""}
     <div class="card"><h3>Completed by project</h3>${byProj.length?hbars(byProj):'<div class="empty">No completed tasks in this period.</div>'}</div>
     <div class="card"><h3>Completed by priority</h3>${hbars([1,2,3].map(n=>[PRI[n],cur.done.filter(t=>t.priority==n).length]))}</div>
     <div class="card"><h3>Most productive weekday</h3>${hbars(wd)}${best[1]?`<div class="meta">You finish most on ${best[0]}.</div>`:""}</div>
@@ -401,7 +572,8 @@ function viewInsights(){
       <div class="card"><pre class="report">${esc(buildReport(per))}</pre></div>
       <div style="display:flex;gap:8px"><button class="btn" style="flex:1" data-act="saveReport">Save report</button><button class="btn ghost" style="flex:1" data-act="shareReport">Share</button></div>`;
   } else {
-    html += `<div class="card"><h3>Export</h3><p style="margin:0 0 10px;color:var(--mute)">Everything is stored on this device only. Back it up regularly.</p>
+    html += `<div class="card"><h3>Appearance</h3><div class="seg" style="margin:0">${[["system","Match phone"],["light","Light"],["dark","Dark"]].map(([k,l])=>`<button data-thm="${k}" class="${db.settings.theme===k?"on":""}">${l}</button>`).join("")}</div></div>
+      <div class="card"><h3>Export</h3><p style="margin:0 0 10px;color:var(--mute)">Everything is stored on this device only. Back it up regularly.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="exportJson">Backup (JSON)</button><button class="btn ghost" data-act="exportCsv">Tasks (CSV)</button></div></div>
       <div class="card"><h3>Restore</h3><p style="margin:0 0 10px;color:var(--mute)">Restoring replaces all current data with the backup file.</p><button class="btn ghost" data-act="importJson">Restore from backup</button></div>
       <div class="card"><h3>Reset</h3><button class="btn danger" data-act="wipe">Delete all data</button></div>`;
@@ -418,6 +590,7 @@ function buildReport(per){
   L.push(`  Tasks created:   ${cur.created.length}`);
   L.push(`  On-time rate:    ${cur.onTimePct===null?"n/a":cur.onTimePct+"%"}`);
   L.push(`  Active days:     ${cur.activeDays} of ${days}`);
+  L.push(`  Focus time:      ${fmtMins(cur.focusMins)} in ${cur.focus.length} session${cur.focus.length===1?"":"s"}`);
   L.push(`  Notes written:   ${cur.notes}`);
   L.push(`  Open tasks:      ${open.length} (${overdue.length} overdue)`, "");
   L.push("COMPLETED");
@@ -450,7 +623,30 @@ const ACTIONS = {
     saveFile(`tasks-${today()}.csv`,"text/csv",rows.map(r=>r.map(csvCell).join(",")).join("\r\n"));
   },
   importJson(){ $("#importFile").value=""; $("#importFile").click(); },
-  wipe(){ confirmSheet("Delete all data?","This removes every task, note, goal and project from this device. It cannot be undone.","Delete everything",()=>{ db={tasks:[],notes:[],goals:[],projects:[]}; save(); render(); toast("All data deleted"); }); }
+  wipe(){ confirmSheet("Delete all data?","This removes every task, note, goal and project from this device. It cannot be undone.","Delete everything",()=>{ db=normalize({settings:db.settings}); save(); tick(); render(); toast("All data deleted"); }); },
+  calPrev(){ shiftMonth(-1); },
+  calNext(){ shiftMonth(1); },
+  sample(){
+    const now = Date.now(), D = 864e5, td = today();
+    const mk = o => Object.assign({id:uid(),notes:"",goalId:"",projectId:"",repeat:"",subs:[],priority:2,done:false,doneAt:null,due:"",createdAt:now}, o);
+    const P = [["Website relaunch",COLORS[0]],["Fitness",COLORS[2]],["Home",COLORS[3]]].map(([name,color])=>({id:uid(),name,color,status:"active",due:"",desc:"",createdAt:now-40*D}));
+    const G = [["Launch the new website","short",addDays(td,30)],["Run a 10k","short",addDays(td,60)],["Save a six-month emergency fund","long",addDays(td,400)]].map(([title,horizon,target],i)=>({id:uid(),title,horizon,target,progress:i===2?35:0,status:"active",why:"",createdAt:now-40*D}));
+    const names = ["Draft homepage copy","Fix contact form","Choose colour palette","Morning run","Stretching session","Book dentist","Pay electricity bill","Write blog post","Review site analytics","Plan meals","Clean garage","Call supplier"];
+    for(let i=0;i<36;i++){
+      const age = Math.floor(Math.random()*30), pi = i%3;
+      db.tasks.push(mk({title:names[i%names.length]+(i>=names.length?" "+(Math.floor(i/names.length)+1):""),projectId:P[pi].id,goalId:pi<2?G[pi].id:"",priority:1+i%3,
+        due:addDays(td,-age+(i%4===0?-1:1)),createdAt:now-(age+2)*D,done:true,doneAt:now-age*D-Math.random()*D/4}));
+    }
+    for(let i=0;i<14;i++) db.focus.push({taskId:db.tasks[db.tasks.length-1-i].id,at:now-Math.floor(Math.random()*30)*D,mins:[15,25,50][i%3]});
+    [["Write launch announcement",0,1,0],["Test site on mobile",1,2,0],["Long run 8k",2,2,1],["Renew car insurance",-2,1,2],["Buy running shoes",5,3,1],["Weekly review",0,2,2]]
+      .forEach(([title,off,priority,pi])=>db.tasks.push(mk({title,due:addDays(td,off),priority,projectId:P[pi].id,goalId:pi<2?G[pi].id:"",createdAt:now-3*D})));
+    db.tasks[db.tasks.length-1].repeat = "weekly";
+    db.tasks[db.tasks.length-6].subs = [{t:"Outline key points",done:true},{t:"Write first draft",done:false},{t:"Add screenshots",done:false}];
+    db.projects.push(...P); db.goals.push(...G);
+    db.notes.push({id:uid(),title:"Launch ideas",body:"- Announce by email\n- Post on social\n- Ask three friends for feedback",tags:["website","ideas"],pinned:true,projectId:P[0].id,createdAt:now-5*D,updatedAt:now-D},
+      {id:uid(),title:"Training plan",body:"Three runs a week. Add 1 km to the long run every second week.",tags:["fitness"],pinned:false,projectId:P[1].id,createdAt:now-12*D,updatedAt:now-6*D});
+    save(); render(); toast("Sample data loaded. Remove it in Insights, Settings.");
+  }
 };
 $("#importFile").onchange = e => {
   const f = e.target.files[0]; if(!f) return;
@@ -459,7 +655,7 @@ $("#importFile").onchange = e => {
     try{
       const d = JSON.parse(r.result);
       if(!d || !["tasks","notes","goals","projects"].every(k=>Array.isArray(d[k]))) throw 0;
-      confirmSheet("Restore this backup?",`It contains ${d.tasks.length} tasks, ${d.notes.length} notes, ${d.goals.length} goals and ${d.projects.length} projects. Your current data will be replaced.`,"Restore",()=>{ db={tasks:d.tasks,notes:d.notes,goals:d.goals,projects:d.projects}; save(); render(); toast("Backup restored"); });
+      confirmSheet("Restore this backup?",`It contains ${d.tasks.length} tasks, ${d.notes.length} notes, ${d.goals.length} goals and ${d.projects.length} projects. Your current data will be replaced.`,"Restore",()=>{ db=normalize({tasks:d.tasks,notes:d.notes,goals:d.goals,projects:d.projects,focus:Array.isArray(d.focus)?d.focus:[],settings:db.settings}); save(); tick(); render(); toast("Backup restored"); });
     }catch(_){ toast("That file is not a valid backup"); }
   };
   r.readAsText(f);
@@ -473,7 +669,8 @@ function sheet(title, body, onSave, onDelete){
   $("#s_cancel").onclick = closeSheet;
   $(".sheet-bg").onclick = e => { if(e.target.classList.contains("sheet-bg")) closeSheet(); };
   $("#s_save").onclick = () => { if(onSave() === false) return; save(); closeSheet(); render(); };
-  if(onDelete){ let armed = false; $("#s_del").onclick = e => { if(!armed){ armed = true; e.target.textContent = "Tap again to delete"; return; } onDelete(); save(); closeSheet(); render(); }; }
+  if(onDelete){ $("#s_del").onclick = () => { const snap = JSON.stringify(db); onDelete(); save(); closeSheet(); render();
+    toast("Deleted", () => { db = normalize(JSON.parse(snap)); save(); render(); }); }; }
 }
 function confirmSheet(title, msg, okLabel, onOk){
   $("#modal").innerHTML = `<div class="sheet-bg"><div class="sheet"><h2>${esc(title)}</h2><p style="color:var(--mute)">${esc(msg)}</p>
@@ -486,7 +683,9 @@ window.handleBack = () => {
   if(state.tab !== "today"){ state.tab = "today"; render(); return true; }
   return false;
 };
+applyTheme();
 render();
+tick();
 </script>
 </body>
 </html>
